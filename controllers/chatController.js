@@ -1,6 +1,6 @@
 // controllers/chatController.js
 const db = require('../models/db');
-const { channel, connectRabbitMQ } = require('../index'); // Importa o canal e a função de reconexão do index.js
+const rabbitmq = require('../rabbitmq'); // Importa o módulo rabbitmq.js
 
 // Função para gerar o código de três dígitos a partir do nome
 const generateCode = (name) => {
@@ -10,11 +10,7 @@ const generateCode = (name) => {
     if (/[a-zA-Z]/.test(char)) {
       const lowerChar = char.toLowerCase();
       const position = lowerChar.charCodeAt(0) - 96; // 'a' = 1, 'b' = 2, ..., 'z' = 26
-      if (position >= 1 && position <= 26) {
-        code += position.toString(); // Mantém a posição completa (1-26)
-      } else {
-        code += '0'; // Fora do alfabeto
-      }
+      code += position.toString();
     } else if (/[0-9]/.test(char)) {
       code += char; // Mantém o dígito
     } else {
@@ -71,9 +67,9 @@ const getMessages = async (req, res) => {
 
     // 5. Buscar mensagens associadas ao remoteJid na coluna key
     const messagesResult = await db.query(
-      `SELECT "messageTimestamp", key, message, "messageType" 
-       FROM "Message" 
-       WHERE "instanceId" = $1 AND key->>'remoteJid' = $2 
+      `SELECT "messageTimestamp", key, message, "messageType"
+       FROM "Message"
+       WHERE "instanceId" = $1 AND key->>'remoteJid' = $2
        ORDER BY "messageTimestamp" DESC`,
       [instanceId, remoteJid]
     );
@@ -88,7 +84,6 @@ const getMessages = async (req, res) => {
 
     // Função para remover parâmetros de consulta das URLs de mídia
     const removeQueryParameters = (messageContent) => {
-      // Clonar o objeto para não modificar o original
       const newContent = JSON.parse(JSON.stringify(messageContent));
 
       const traverseAndClean = (obj) => {
@@ -96,9 +91,7 @@ const getMessages = async (req, res) => {
           if (typeof obj[key] === 'object' && obj[key] !== null) {
             traverseAndClean(obj[key]);
           } else if (typeof obj[key] === 'string') {
-            // Verificar se a string é uma URL que contém '?'
             if (obj[key].startsWith('http') && obj[key].includes('?')) {
-              // Remover tudo após o '?'
               obj[key] = obj[key].split('?')[0];
             }
           }
@@ -123,7 +116,6 @@ const getMessages = async (req, res) => {
 
       switch (messageType) {
         case 'contactMessage':
-          // Verificar se 'contactMessage' existe em 'messageContent'
           if (messageContent.contactMessage) {
             processedContent = {
               displayName: messageContent.contactMessage.displayName || '',
@@ -138,7 +130,6 @@ const getMessages = async (req, res) => {
           break;
 
         case 'locationMessage':
-          // Verificar se 'locationMessage' existe em 'messageContent'
           if (messageContent.locationMessage) {
             processedContent = {
               url: messageContent.locationMessage.url || '',
@@ -191,13 +182,17 @@ const getMessages = async (req, res) => {
 
     console.log(`Conversa encontrada com ${messages.length} mensagens`);
 
-    // 7. Publicar na fila RabbitMQ (exemplo)
+    // 7. Publicar na fila RabbitMQ
+    const channel = rabbitmq.getChannel();
+
     if (!channel || !channel.connection) {
       console.warn('Canal RabbitMQ não está disponível. Tentando reconectar...');
-      await connectRabbitMQ();
+      await rabbitmq.connectRabbitMQ();
     }
 
-    if (channel) {
+    const channelAfterReconnect = rabbitmq.getChannel();
+
+    if (channelAfterReconnect) {
       const payload = {
         action: 'fetchMessages',
         data: {
@@ -206,7 +201,7 @@ const getMessages = async (req, res) => {
           messageCount: messages.length,
         },
       };
-      channel.sendToQueue(
+      channelAfterReconnect.sendToQueue(
         process.env.RABBITMQ_QUEUE || 'default_quorum_queue',
         Buffer.from(JSON.stringify(payload)),
         { persistent: true }
