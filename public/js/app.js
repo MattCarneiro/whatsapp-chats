@@ -1,4 +1,3 @@
-// public/js/app.js
 document.addEventListener('DOMContentLoaded', () => {
   const loader = document.getElementById('loader');
   const chatContainer = document.getElementById('chat-container');
@@ -18,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const PAGE_SIZE = 50;
   let allMessages = [];
   let currentPage = 1;
-  let hasMoreMessages = true; // Flag para verificar se há mais mensagens
+  let hasMoreMessages = true;
 
   // Função para formatar o timestamp
   const formatTimestamp = (timestamp) => {
@@ -44,20 +43,26 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error('Conversa não encontrada ou acesso negado');
       }
       const data = await response.json();
-      console.log('Mensagens recebidas:', data.messages); // Log para verificar a estrutura
-      allMessages = data.messages.reverse(); // Ordem cronológica: das mais antigas para as mais recentes
-      renderMessages(true); // Passar 'true' para indicar que é a primeira renderização
+      console.log('Mensagens recebidas:', data.messages);
+      allMessages = data.messages.reverse(); // Ordem das mais antigas para as mais recentes
+      renderMessages(true); // Primeira renderização
       loader.classList.add('hidden');
       chatContainer.classList.remove('hidden');
-      // Scroll para o final das mensagens após carregar
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      // Se houver parâmetro 'date' na query string, rolar para a data informada
+      const queryParams = new URLSearchParams(window.location.search);
+      if (queryParams.has('date')) {
+        scrollToDate();
+      } else {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
     } catch (error) {
       loader.textContent = error.message;
       console.error(error);
     }
   };
 
-  // Função para obter a data da primeira mensagem atualmente exibida
+  // Função para obter a data da primeira mensagem exibida (usada na renderização incremental)
   const getFirstMessageDate = () => {
     const firstDateSeparator = messagesContainer.querySelector('.date-separator');
     if (firstDateSeparator) {
@@ -68,10 +73,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return null;
   };
 
-  // Função para renderizar mensagens
+  // Função para renderizar as mensagens
   const renderMessages = (initial = false) => {
     if (initial) {
-      messagesContainer.innerHTML = ''; // Limpa as mensagens atuais apenas na primeira renderização
+      messagesContainer.innerHTML = '';
     }
 
     const start = 0;
@@ -79,8 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const messagesToRender = allMessages.slice(-end, -start || undefined);
 
     let previousMessageDate = initial ? null : getFirstMessageDate();
-
-    // Array para armazenar elementos a serem adicionados
     const elementsToAdd = [];
 
     messagesToRender.forEach(msg => {
@@ -90,8 +93,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (previousMessageDate !== messageDate) {
         const dateSeparator = document.createElement('div');
         dateSeparator.classList.add('date-separator');
-        dateSeparator.innerHTML = `<span class="separator-text">${formatDateSeparator(msg.messageTimestamp)}</span>`;
+        
+        const dateSpan = document.createElement('span');
+        dateSpan.classList.add('separator-text');
+        // Atribuir o atributo data-date com a data em formato ISO
+        dateSpan.setAttribute('data-date', new Date(msg.messageTimestamp).toISOString());
+        dateSpan.textContent = formatDateSeparator(msg.messageTimestamp);
+        
+        dateSeparator.appendChild(dateSpan);
         elementsToAdd.push(dateSeparator);
+        
         previousMessageDate = messageDate;
       }
 
@@ -99,12 +110,9 @@ document.addEventListener('DOMContentLoaded', () => {
       messageDiv.classList.add('message');
       messageDiv.classList.add(msg.fromMe ? 'sent' : 'received');
 
-      // msg.content é o objeto original que veio do banco (JSONB)
-      // e msg.messageType indica o tipo ("conversation", "audioMessage", "listMessage", etc.)
       const media = msg.content;
 
       if (msg.messageType === 'conversation') {
-        // Texto puro
         messageDiv.textContent = media.conversation;
       }
       else if (msg.messageType === 'audioMessage') {
@@ -129,14 +137,9 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (msg.messageType === 'documentMessage') {
         messageDiv.innerHTML = `<a href="${media.mediaUrl}" download>Baixar Documento</a>`;
       }
-
-      // ---- AQUI ENTRAM OS NOVOS TIPOS ----
       else if (msg.messageType === 'listMessage') {
-        // Seu código existente para listMessage permanece aqui
         const listMsg = media.listMessage;
         const { title, description, footerText, buttonText, sections } = listMsg;
-
-        // Construir HTML para sections (ocultas inicialmente)
         let sectionsHtml = '';
         if (sections && sections.length > 0) {
           sectionsHtml = sections.map(section => {
@@ -145,7 +148,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong>${row.title}</strong><br>
                 <small>${row.description || ''}</small>
               </li>`).join('');
-
             return `
               <div class="list-section">
                 <h4>${section.title}</h4>
@@ -153,8 +155,6 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>`;
           }).join('');
         }
-
-        // Montar estrutura com um botão para expandir/contrair as seções
         messageDiv.innerHTML = `
           <div class="list-message">
             <h3 class="list-title">${title}</h3>
@@ -172,10 +172,8 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
       else if (msg.messageType === 'listResponseMessage') {
-        // Seu código existente para listResponseMessage permanece aqui
         const listResp = media.listResponseMessage;
         const { title, description, singleSelectReply } = listResp;
-
         messageDiv.innerHTML = `
           <div class="list-response-message">
             <strong>Resposta da lista:</strong><br/>
@@ -186,15 +184,11 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
       else if (msg.messageType === 'contactMessage') {
-        // Seu código existente para contactMessage permanece aqui
         const contact = media.contactMessage || media || {};
         const displayName = contact.displayName || 'Contato desconhecido';
         const vcard = contact.vcard || '';
-
-        // Extrair o número de telefone do vCard usando regex
         let phoneNumberMatch = vcard.match(/waid=(\d+)/);
         let contactNumber = phoneNumberMatch ? phoneNumberMatch[1] : 'Número desconhecido';
-
         messageDiv.innerHTML = `
           <div class="contact-message">
             <p><strong>Contato:</strong> ${displayName}</p>
@@ -203,7 +197,6 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
       else if (msg.messageType === 'locationMessage') {
-        // Seu código existente para locationMessage permanece aqui
         const location = media.locationMessage || media || {};
         const name = location.name || 'Localização';
         const address = location.address || '';
@@ -211,14 +204,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const latitude = location.degreesLatitude || 0;
         const longitude = location.degreesLongitude || 0;
         const thumbnailBase64 = location.jpegThumbnail || '';
-
-        // Se quiser exibir a imagem thumbnail:
         let thumbnailImg = '';
         if (thumbnailBase64) {
           thumbnailImg = `<img src="data:image/jpeg;base64,${thumbnailBase64}" alt="Imagem" class="media-image">`;
         }
-
-        // Corrigir o link para evitar redirecionamento incorreto
         messageDiv.innerHTML = `
           <div class="location-message">
             ${thumbnailImg}
@@ -229,16 +218,12 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
       else if (msg.messageType === 'viewOnceMessageV2') {
-        // Mensagem de visualização única V2
         messageDiv.textContent = "Recebido Mensagem de Visualização Única";
       }
       else {
-        // Caso não se encaixe em nenhum tipo conhecido, apenas imprime JSON
         messageDiv.textContent = JSON.stringify(media);
       }
-      // ---- FIM DOS NOVOS TIPOS ----
 
-      // Adicionar o timestamp
       const timestampDiv = document.createElement('div');
       timestampDiv.classList.add('timestamp');
       timestampDiv.textContent = formatTimestamp(msg.messageTimestamp);
@@ -248,14 +233,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (initial) {
-      // Adicionar todos os elementos ao final
       elementsToAdd.forEach(element => messagesContainer.appendChild(element));
     } else {
-      // Prepend (adicionar ao início)
       elementsToAdd.reverse().forEach(element => messagesContainer.insertBefore(element, messagesContainer.firstChild));
     }
 
-    // Mostrar ou esconder o botão de load more
     if (allMessages.length > PAGE_SIZE * currentPage) {
       loadMoreButton.classList.remove('hidden');
       hasMoreMessages = true;
@@ -265,7 +247,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (!initial) {
-      // Ajustar o scroll para manter a posição após carregar mais mensagens
       const previousScrollHeight = messagesContainer.scrollHeight;
       setTimeout(() => {
         const newScrollHeight = messagesContainer.scrollHeight;
@@ -274,7 +255,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // Evento do botão "Ver mensagens mais antigas"
+  // Função para rolar a tela até o separador da data desejada, com base na query string (?date=dd-mm-yyyy)
+  const scrollToDate = () => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const dateParam = queryParams.get('date'); // Ex.: ?date=20-02-2025
+    if (!dateParam) return;
+
+    const parts = dateParam.split('-');
+    if (parts.length !== 3) return;
+    const targetDate = new Date(parts[2], parts[1] - 1, parts[0]);
+
+    const separators = Array.from(document.querySelectorAll('.separator-text'));
+    let scrollTarget = null;
+    let closestDate = null;
+
+    separators.forEach(separator => {
+      const separatorDate = new Date(separator.getAttribute('data-date'));
+      if (separatorDate <= targetDate) {
+        if (!closestDate || separatorDate > closestDate) {
+          closestDate = separatorDate;
+          scrollTarget = separator;
+        }
+      }
+    });
+
+    if (scrollTarget) {
+      scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   loadMoreButton.addEventListener('click', () => {
     if (hasMoreMessages) {
       currentPage += 1;
@@ -282,7 +293,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Delegar evento de clique para o botão das listas
   messagesContainer.addEventListener('click', (event) => {
     if (event.target && event.target.matches('.list-button')) {
       const parentDiv = event.target.closest('.list-message');
@@ -293,6 +303,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Iniciar busca
   fetchMessages();
 });
