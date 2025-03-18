@@ -35,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleDateString('pt-BR', options);
   };
 
+  // Função auxiliar que extrai a data no formato YYYY-MM-DD de um objeto Date.
+  const getLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Função para buscar mensagens no backend (realiza a "autenticação" via parâmetros)
   const fetchMessages = async () => {
     try {
@@ -51,26 +59,37 @@ document.addEventListener('DOMContentLoaded', () => {
       // Inverte para ordem cronológica (das mais antigas para as mais recentes)
       allMessages = data.messages.reverse();
 
+      // Armazena o parâmetro de data antes de trocar a URL
       const queryParams = new URLSearchParams(window.location.search);
-      if (queryParams.has('date')) {
-        // Se a data for informada, renderiza todas as mensagens para garantir que o separador desejado apareça
+      const dateParam = queryParams.get('date');
+      let targetDate = null;
+      if (dateParam) {
+        const parts = dateParam.split('-');
+        if (parts.length === 3) {
+          targetDate = new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+      }
+
+      // Se houver data informada, renderiza todas as mensagens para garantir que o separador desejado apareça
+      if (targetDate) {
         renderMessages(true, true);
-        // Delay para garantir que o DOM seja atualizado antes de rolar
-        setTimeout(scrollToDate, 100);
       } else {
         renderMessages(true);
-        // Se não houver data na query, rola para o final (última mensagem)
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
 
-      // Após login bem-sucedido, mascara a URL para a rota genérica
+      // Após renderizar, substitui a URL por uma rota genérica
       window.history.replaceState({}, 'Chat', '/chats');
+
+      // Se houver targetDate, chama a função de scroll com um delay para garantir que o DOM esteja pronto
+      if (targetDate) {
+        setTimeout(() => scrollToDate(targetDate), 150);
+      }
 
       loader.classList.add('hidden');
       chatContainer.classList.remove('hidden');
     } catch (error) {
       console.error(error);
-      // Em caso de erro, redireciona para o site externo
       window.location.href = 'https://neuralbroker.com.br';
     }
   };
@@ -239,7 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
       elementsToAdd.push(messageDiv);
     });
 
-    // Na renderização inicial, adiciona os elementos ao final; se não, insere no início
     if (initial) {
       elementsToAdd.forEach(element => messagesContainer.appendChild(element));
     } else {
@@ -256,37 +274,19 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   /**
-   * Função auxiliar que extrai a data no formato YYYY-MM-DD de um objeto Date.
-   */
-  const getLocalDateString = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  /**
    * Função para rolar até o separador cuja data seja a mais próxima (mas não superior)
-   * à data informada na query string (?date=dd-mm-yyyy).
+   * à data alvo (passada como parâmetro).
+   * Usa somente a parte da data (YYYY-MM-DD) para comparação.
    */
-  const scrollToDate = () => {
-    const queryParams = new URLSearchParams(window.location.search);
-    const dateParam = queryParams.get('date');
-    if (!dateParam) return;
-
-    const parts = dateParam.split('-');
-    if (parts.length !== 3) return;
-    const targetDate = new Date(parts[2], parts[1] - 1, parts[0]);
+  const scrollToDate = (targetDate) => {
+    if (!targetDate) return;
     const targetDateStr = getLocalDateString(targetDate);
-
     let scrollTarget = null;
     let closestDateStr = null;
-
     const separators = document.querySelectorAll('.separator-text');
     separators.forEach(separator => {
       const sepDate = new Date(separator.getAttribute('data-date'));
       const sepDateStr = getLocalDateString(sepDate);
-
       if (sepDateStr <= targetDateStr) {
         if (!closestDateStr || sepDateStr > closestDateStr) {
           closestDateStr = sepDateStr;
@@ -294,7 +294,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-
     if (scrollTarget) {
       scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
