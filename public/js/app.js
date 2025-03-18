@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentPage = 1;
   let hasMoreMessages = true;
 
-  // Função para formatar o timestamp
+  // Função para formatar o timestamp (hora:minuto:segundo)
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
     const hours = String(date.getHours()).padStart(2, '0');
@@ -28,14 +28,14 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${hours}:${minutes}:${seconds}`;
   };
 
-  // Função para formatar a data para o separador
+  // Função para formatar a data do separador
   const formatDateSeparator = (timestamp) => {
     const date = new Date(timestamp);
     const options = { year: 'numeric', month: 'long', day: 'numeric' };
     return date.toLocaleDateString('pt-BR', options);
   };
 
-  // Função para buscar mensagens
+  // Função para buscar mensagens no backend
   const fetchMessages = async () => {
     try {
       const response = await fetch(`/api/chat/${name}/${phoneNumber}/${code}/messages`);
@@ -44,68 +44,69 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const data = await response.json();
       console.log('Mensagens recebidas:', data.messages);
-      allMessages = data.messages.reverse(); // Ordem das mais antigas para as mais recentes
-      renderMessages(true); // Primeira renderização
-      loader.classList.add('hidden');
-      chatContainer.classList.remove('hidden');
+      // Inverte para ordem cronológica (das mais antigas para as mais recentes)
+      allMessages = data.messages.reverse();
 
-      // Se houver parâmetro 'date' na query string, rolar para a data informada
       const queryParams = new URLSearchParams(window.location.search);
       if (queryParams.has('date')) {
-        scrollToDate();
+        // Se a data for informada, renderiza **todas** as mensagens para garantir que o separador desejado apareça
+        renderMessages(true, true);
+        // Delay para garantir que o DOM seja atualizado antes de rolar
+        setTimeout(scrollToDate, 100);
       } else {
+        renderMessages(true);
+        // Se não houver data na query, rola para o final (última mensagem)
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
+
+      loader.classList.add('hidden');
+      chatContainer.classList.remove('hidden');
     } catch (error) {
       loader.textContent = error.message;
       console.error(error);
     }
   };
 
-  // Função para obter a data da primeira mensagem exibida (usada na renderização incremental)
-  const getFirstMessageDate = () => {
-    const firstDateSeparator = messagesContainer.querySelector('.date-separator');
-    if (firstDateSeparator) {
-      const dateText = firstDateSeparator.querySelector('.separator-text').textContent;
-      const date = new Date(dateText);
-      return date.toDateString();
-    }
-    return null;
-  };
-
-  // Função para renderizar as mensagens
-  const renderMessages = (initial = false) => {
+  /**
+   * Função para renderizar as mensagens.
+   * @param {boolean} initial - Se true, limpa o container antes de renderizar.
+   * @param {boolean} renderAll - Se true, renderiza todas as mensagens (ignora paginação).
+   */
+  const renderMessages = (initial = false, renderAll = false) => {
     if (initial) {
       messagesContainer.innerHTML = '';
     }
 
-    const start = 0;
-    const end = PAGE_SIZE * currentPage;
-    const messagesToRender = allMessages.slice(-end, -start || undefined);
+    let messagesToRender = [];
+    if (renderAll) {
+      messagesToRender = allMessages;
+    } else {
+      const end = PAGE_SIZE * currentPage;
+      messagesToRender = allMessages.slice(-end);
+    }
 
-    let previousMessageDate = initial ? null : getFirstMessageDate();
+    let previousMessageDate = null;
     const elementsToAdd = [];
 
     messagesToRender.forEach(msg => {
       const messageDate = new Date(msg.messageTimestamp).toDateString();
-
-      // Adicionar separador de data se for um novo dia
       if (previousMessageDate !== messageDate) {
+        // Cria separador de data com atributo data-date (formato ISO)
         const dateSeparator = document.createElement('div');
         dateSeparator.classList.add('date-separator');
-        
+
         const dateSpan = document.createElement('span');
         dateSpan.classList.add('separator-text');
-        // Atribuir o atributo data-date com a data em formato ISO
         dateSpan.setAttribute('data-date', new Date(msg.messageTimestamp).toISOString());
         dateSpan.textContent = formatDateSeparator(msg.messageTimestamp);
-        
+
         dateSeparator.appendChild(dateSpan);
         elementsToAdd.push(dateSeparator);
-        
+
         previousMessageDate = messageDate;
       }
 
+      // Cria o elemento da mensagem
       const messageDiv = document.createElement('div');
       messageDiv.classList.add('message');
       messageDiv.classList.add(msg.fromMe ? 'sent' : 'received');
@@ -201,8 +202,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = location.name || 'Localização';
         const address = location.address || '';
         const url = location.url || '#';
-        const latitude = location.degreesLatitude || 0;
-        const longitude = location.degreesLongitude || 0;
         const thumbnailBase64 = location.jpegThumbnail || '';
         let thumbnailImg = '';
         if (thumbnailBase64) {
@@ -232,48 +231,62 @@ document.addEventListener('DOMContentLoaded', () => {
       elementsToAdd.push(messageDiv);
     });
 
+    // Na renderização inicial, adiciona os elementos ao final; se não, insere no início
     if (initial) {
       elementsToAdd.forEach(element => messagesContainer.appendChild(element));
     } else {
       elementsToAdd.reverse().forEach(element => messagesContainer.insertBefore(element, messagesContainer.firstChild));
     }
 
-    if (allMessages.length > PAGE_SIZE * currentPage) {
+    if (!renderAll && allMessages.length > PAGE_SIZE * currentPage) {
       loadMoreButton.classList.remove('hidden');
       hasMoreMessages = true;
     } else {
       loadMoreButton.classList.add('hidden');
       hasMoreMessages = false;
     }
-
-    if (!initial) {
-      const previousScrollHeight = messagesContainer.scrollHeight;
-      setTimeout(() => {
-        const newScrollHeight = messagesContainer.scrollHeight;
-        messagesContainer.scrollTop = newScrollHeight - previousScrollHeight;
-      }, 100);
-    }
   };
 
-  // Função para rolar a tela até o separador da data desejada, com base na query string (?date=dd-mm-yyyy)
+  /**
+   * Função para extrair a data (YYYY-MM-DD) de um objeto Date,
+   * considerando apenas ano, mês e dia.
+   */
+  const getLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  /**
+   * Função para rolar até o separador cuja data seja a mais próxima (mas não superior)
+   * à data informada na query string (?date=dd-mm-yyyy).
+   */
   const scrollToDate = () => {
     const queryParams = new URLSearchParams(window.location.search);
-    const dateParam = queryParams.get('date'); // Ex.: ?date=20-02-2025
+    const dateParam = queryParams.get('date');
     if (!dateParam) return;
 
     const parts = dateParam.split('-');
     if (parts.length !== 3) return;
+    // Cria o target usando a data local (ignorando horário)
     const targetDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    const targetDateStr = getLocalDateString(targetDate);
 
-    const separators = Array.from(document.querySelectorAll('.separator-text'));
     let scrollTarget = null;
-    let closestDate = null;
+    let closestDateStr = null;
 
+    const separators = document.querySelectorAll('.separator-text');
     separators.forEach(separator => {
-      const separatorDate = new Date(separator.getAttribute('data-date'));
-      if (separatorDate <= targetDate) {
-        if (!closestDate || separatorDate > closestDate) {
-          closestDate = separatorDate;
+      // Converte a data armazenada no atributo para um objeto Date e extrai a data local
+      const sepDate = new Date(separator.getAttribute('data-date'));
+      const sepDateStr = getLocalDateString(sepDate);
+
+      // Se o separador é anterior ou igual à data alvo
+      if (sepDateStr <= targetDateStr) {
+        // E se for a data mais próxima encontrada até agora
+        if (!closestDateStr || sepDateStr > closestDateStr) {
+          closestDateStr = sepDateStr;
           scrollTarget = separator;
         }
       }
@@ -282,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scrollTarget) {
       scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      messagesContainer.scrollTop = 0;
     }
   };
 
