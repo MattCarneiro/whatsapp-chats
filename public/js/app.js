@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const contactNumberSpan = document.getElementById('contact-number');
   const loadMoreButton = document.getElementById('load-more');
 
-  // Obter os parâmetros da URL
+  // Obter os parâmetros da URL (usados para login/autenticação)
   const urlParts = window.location.pathname.split('/').filter(part => part !== '');
   const name = urlParts[0];
   const phoneNumber = urlParts[1];
@@ -35,13 +35,17 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleDateString('pt-BR', options);
   };
 
-  // Função para buscar mensagens no backend
+  // Função para buscar mensagens no backend (realiza a "autenticação" via parâmetros)
   const fetchMessages = async () => {
     try {
       const response = await fetch(`/api/chat/${name}/${phoneNumber}/${code}/messages`);
+      
+      // Se a resposta não for OK (login ou conversa inválidos), redireciona para o site externo
       if (!response.ok) {
-        throw new Error('Conversa não encontrada ou acesso negado');
+        window.location.href = 'https://neuralbroker.com.br';
+        return;
       }
+      
       const data = await response.json();
       console.log('Mensagens recebidas:', data.messages);
       // Inverte para ordem cronológica (das mais antigas para as mais recentes)
@@ -49,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const queryParams = new URLSearchParams(window.location.search);
       if (queryParams.has('date')) {
-        // Se a data for informada, renderiza **todas** as mensagens para garantir que o separador desejado apareça
+        // Se a data for informada, renderiza todas as mensagens para garantir que o separador desejado apareça
         renderMessages(true, true);
         // Delay para garantir que o DOM seja atualizado antes de rolar
         setTimeout(scrollToDate, 100);
@@ -59,11 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
 
+      // Após login bem-sucedido, mascara a URL para a rota genérica
+      window.history.replaceState({}, 'Chat', '/chats');
+
       loader.classList.add('hidden');
       chatContainer.classList.remove('hidden');
     } catch (error) {
-      loader.textContent = error.message;
       console.error(error);
+      // Em caso de erro, redireciona para o site externo
+      window.location.href = 'https://neuralbroker.com.br';
     }
   };
 
@@ -248,8 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   /**
-   * Função para extrair a data (YYYY-MM-DD) de um objeto Date,
-   * considerando apenas ano, mês e dia.
+   * Função auxiliar que extrai a data no formato YYYY-MM-DD de um objeto Date.
    */
   const getLocalDateString = (date) => {
     const year = date.getFullYear();
@@ -269,7 +276,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const parts = dateParam.split('-');
     if (parts.length !== 3) return;
-    // Cria o target usando a data local (ignorando horário)
     const targetDate = new Date(parts[2], parts[1] - 1, parts[0]);
     const targetDateStr = getLocalDateString(targetDate);
 
@@ -278,13 +284,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const separators = document.querySelectorAll('.separator-text');
     separators.forEach(separator => {
-      // Converte a data armazenada no atributo para um objeto Date e extrai a data local
       const sepDate = new Date(separator.getAttribute('data-date'));
       const sepDateStr = getLocalDateString(sepDate);
 
-      // Se o separador é anterior ou igual à data alvo
       if (sepDateStr <= targetDateStr) {
-        // E se for a data mais próxima encontrada até agora
         if (!closestDateStr || sepDateStr > closestDateStr) {
           closestDateStr = sepDateStr;
           scrollTarget = separator;
